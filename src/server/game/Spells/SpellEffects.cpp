@@ -1875,10 +1875,6 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
         SendCastResult(res);
         return;
     }
-
-    if (reqSkillValue == 0)
-        reqSkillValue = skillValue;
-
     if (gameObjTarget)
         SendLoot(guid, LOOT_SKINNING);
     else if (itemTarget)
@@ -1886,20 +1882,32 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
         itemTarget->AddItemFlag(ITEM_FIELD_FLAG_UNLOCKED);
         itemTarget->SetState(ITEM_CHANGED, itemTarget->GetOwner());
     }
-
+	
     GameObjectTemplate const* goInfo = gameObjTarget->GetGOInfo();
     if (goInfo->type == GAMEOBJECT_TYPE_GATHERING_NODE || goInfo->type == GAMEOBJECT_TYPE_CHEST)
-    {       
-        if (goInfo->IconName == "Herb")
+    {
+        // CanOpenLock() resolves which profession is used, but BFA gathering-node
+        // locks can have no explicit required skill value. For type 50 gathering
+        // nodes, use the template's trivial-skill data to derive the base skill
+        // used by UpdateGatherSkill(). SkillGainChance() treats this base as:
+        // yellow = base + 25, green = base + 50, grey = base + 100.
+        uint32 gatherBaseSkill = reqSkillValue > 0 ? uint32(reqSkillValue) : 0;
+
+        if (goInfo->type == GAMEOBJECT_TYPE_GATHERING_NODE)
         {
-            if (uint32 pureSkillValue = player->GetPureSkillValue(SKILL_HERBALISM_2) && gameObjTarget)
-                if (!gameObjTarget->IsInSkillupList(player->GetGUID()) && player->UpdateGatherSkill(SKILL_HERBALISM_2, pureSkillValue, reqSkillValue))
-                    gameObjTarget->AddToSkillupList(player->GetGUID());
+            uint32 const trivialLow = goInfo->gatheringNode.trivialSkillLow;
+            if (trivialLow >= 50)
+                gatherBaseSkill = trivialLow - 50;
         }
-        if (goInfo->IconName == "Mining")
+
+        // Use the resolved skill directly instead of relying on IconName strings
+        // such as "Mining" or "Herb", which are not consistently populated in
+        // BFA DB data.
+        if (skillId != SKILL_NONE)
         {
-            if (uint32 pureSkillValue = player->GetPureSkillValue(SKILL_MINING_2) && gameObjTarget)
-                if (!gameObjTarget->IsInSkillupList(player->GetGUID()) && player->UpdateGatherSkill(SKILL_MINING_2, pureSkillValue, reqSkillValue))
+            if (uint32 pureSkillValue = player->GetPureSkillValue(skillId))
+                if (!gameObjTarget->IsInSkillupList(player->GetGUID()) &&
+                    player->UpdateGatherSkill(skillId, pureSkillValue, gatherBaseSkill))
                     gameObjTarget->AddToSkillupList(player->GetGUID());
         }
     }
@@ -2054,14 +2062,6 @@ void Spell::EffectSummonType(SpellEffIndex effIndex)
         return;
 
     uint32 entry = effectInfo->MiscValue;
-    std::shared_ptr<BattlePet> summonedBattlePet;
-    if (m_spellInfo->Id == 118301)
-        if (Player* player = m_originalCaster ? m_originalCaster->ToPlayer() : nullptr)
-            if ((summonedBattlePet = player->GetBattlePet(player->GetSummonedBattlePetGUID())))
-                if (BattlePetSpeciesEntry const* species = sBattlePetSpeciesStore.LookupEntry(summonedBattlePet->Species))
-                    if (species->CreatureID)
-                        entry = species->CreatureID;
-
     if (!entry)
         return;
 
@@ -2151,31 +2151,13 @@ void Spell::EffectSummonType(SpellEffIndex effIndex)
                 }
             case SummonTitle::Companion:
                 {
-                    Position summonPosition = *destTarget;
-                    std::list<Creature*> nearbyCreatures;
-                    m_originalCaster->GetCreatureListInGrid(nearbyCreatures, 3.0f);
-                    bool spawnPositionOccupied = std::any_of(nearbyCreatures.begin(), nearbyCreatures.end(), [&summonPosition](Creature const* creature)
-                    {
-                        return !creature->GetBattlePetCompanionGUID().IsEmpty() && creature->GetExactDist2d(summonPosition) < 0.75f;
-                    });
-
-                    if (spawnPositionOccupied)
-                    {
-                        float distance = std::max(m_originalCaster->GetExactDist2d(summonPosition), 1.5f);
-                        summonPosition = m_originalCaster->GetNearPosition(distance, float(M_PI * 0.75));
-                    }
-
-                    m_originalCaster->UpdateGroundPositionZ(summonPosition.m_positionX, summonPosition.m_positionY, summonPosition.m_positionZ);
-                    summon = m_caster->GetMap()->SummonCreature(entry, summonPosition, properties, duration, m_originalCaster, m_spellInfo->Id, 0, personalSpawn, this);
+                    summon = m_caster->GetMap()->SummonCreature(entry, *destTarget, properties, duration, m_originalCaster, m_spellInfo->Id, 0, personalSpawn, this);
                     if (!summon || !summon->HasUnitTypeMask(UNIT_MASK_MINION))
                         return;
 
-                    if (!summonedBattlePet)
-                        summon->SelectLevel();       // some summoned creaters have different from 1 DB data for level/hp
+                    summon->SelectLevel();       // some summoned creaters have different from 1 DB data for level/hp
                     summon->SetNpcFlags(NPCFlags(summon->GetCreatureTemplate()->npcflag & 0xFFFFFFFF));
                     summon->SetNpcFlags2(NPCFlags2(summon->GetCreatureTemplate()->npcflag >> 32));
-                    if (summonedBattlePet)
-                        summon->RemoveNpcFlag(UNIT_NPC_FLAG_WILD_BATTLE_PET);
 
                     summon->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
 
@@ -4704,17 +4686,6 @@ void Spell::EffectLeapBack(SpellEffIndex /*effIndex*/)
     float speedxy = effectInfo->MiscValue / 10.f;
     float speedz = damage / 10.f;
 
-    bool forward = false;
-    switch (GetSpellInfo()->Id)
-    {
-        case 67175:
-        case 69070:
-        case 102417:
-        case 192063:
-            forward = true;
-            break;
-    }
-
     // Disengage
     unitTarget->JumpTo(speedxy, speedz, m_spellInfo->IconFileDataId != 132572);
 
@@ -5165,9 +5136,10 @@ void Spell::EffectProspecting(SpellEffIndex /*effIndex*/)
 
     if (sWorld->getBoolConfig(CONFIG_SKILL_PROSPECTING))
     {
-        uint32 SkillValue = player->GetPureSkillValue(SKILL_JEWELCRAFTING);
-        uint32 reqSkillValue = itemTarget->GetTemplate()->GetRequiredSkillRank();
-        player->UpdateGatherSkill(SKILL_JEWELCRAFTING, SkillValue, reqSkillValue);
+        uint32 const jewelcraftingSkill = SKILL_JEWELCRAFTING_2;
+        uint32 const skillValue = player->GetPureSkillValue(jewelcraftingSkill);
+        uint32 const reqSkillValue = itemTarget->GetTemplate()->GetRequiredSkillRank();
+        player->UpdateGatherSkill(jewelcraftingSkill, skillValue, reqSkillValue);
     }
 
     player->SendLoot(itemTarget->GetGUID(), LOOT_PROSPECTING);
@@ -5803,15 +5775,9 @@ void Spell::EffectRechargeItem(SpellEffIndex /*effIndex*/)
 
     if (Item* item = player->GetItemByEntry(effectInfo->ItemType))
     {
-        uint8 x = 0;
-        for (ItemEffectEntry const* itemEffect : item->GetEffects())
-        {
-            if (x >= MAX_ITEM_SPELLS)
-                break;
-
-            item->SetSpellCharges(x++, itemEffect->Charges);
-        }
-
+        ItemTemplate const* proto = item->GetTemplate();
+        for (size_t x = 0; x < proto->Effects.size() && x < 5; ++x)
+            item->SetSpellCharges(x, proto->Effects[x]->Charges);
         item->SetState(ITEM_CHANGED, player);
     }
 }
@@ -6184,12 +6150,6 @@ void Spell::EffectUncageBattlePet(SpellEffIndex /*effIndex*/)
         return;
 
     uint32 speciesId = m_CastItem->GetModifier(ITEM_MODIFIER_BATTLE_PET_SPECIES_ID);
-    if (plr->GetBattlePetCountForSpecies(speciesId) >= MAX_BATTLE_PET_PER_SPECIES)
-    {
-        plr->SendDirectMessage(WorldPackets::Misc::DisplayGameError(
-            GameError::ERR_CANT_HAVE_MORE_PETS_OF_THAT_TYPE).Write());
-        return;
-    }
 
     uint32 tempData = m_CastItem->GetModifier(ITEM_MODIFIER_BATTLE_PET_BREED_DATA);
 
@@ -6209,7 +6169,6 @@ void Spell::EffectUncageBattlePet(SpellEffIndex /*effIndex*/)
 
     plr->_battlePets.emplace(BattlePetPtr->JournalID, BattlePetPtr);
     plr->GetSession()->SendBattlePetUpdates();
-    plr->UpdateCriteria(CRITERIA_TYPE_COLLECT_BATTLEPET);
 
     plr->DestroyItem(m_CastItem->GetBagSlot(), m_CastItem->GetSlot(), true);
     m_CastItem = nullptr;

@@ -409,10 +409,7 @@ namespace Battlepay
 
     struct Purchase
     {
-        Purchase()
-        {
-            memset(this, 0, sizeof(Purchase));
-        }
+        Purchase() : DistributionId(0), PurchaseID(0), CurrentPrice(0), ClientToken(0), ServerToken(0), ProductID(0), Status(0), Lock(false) { }
 
         ObjectGuid TargetCharacter;
         uint64 DistributionId;
@@ -461,7 +458,7 @@ public:
     void SendProductList();
     void SendPointsBalance();
     void SendBattlePayDistribution(uint32 productId, uint8 status, uint64 distributionId, ObjectGuid targetGuid = ObjectGuid::Empty);
-    void AssignDistributionToCharacter(ObjectGuid const& targetCharGuid, uint64 distributionId, uint32 productId, uint16 specialization_id, uint16 choice_id);
+    void AssignDistributionToCharacter(ObjectGuid const& targetCharGuid, uint64 distributionId, uint32 productId, uint16 /*specialization_id*/, uint16 /*choice_id*/);
     void Update(uint32 diff);
 };
 

@@ -102,7 +102,7 @@ enum Actions
     ACTION_TALK_ENTER_ZONE        = 2
 };
 
-class BoneSpikeTargetSelector : public std::unary_function<Unit*, bool>
+class BoneSpikeTargetSelector
 {
     public:
         BoneSpikeTargetSelector(UnitAI* ai) : _ai(ai) { }
@@ -231,7 +231,7 @@ class boss_lord_marrowgar : public CreatureScript
                             me->SetSpeedRate(MOVE_RUN, _baseSpeed*3.0f);
                             Talk(SAY_BONE_STORM);
                             events.ScheduleEvent(EVENT_BONE_STORM_END, _boneStormDuration+1);
-                            // no break here
+                            /* fallthrough */
                         case EVENT_BONE_STORM_MOVE:
                         {
                             events.ScheduleEvent(EVENT_BONE_STORM_MOVE, _boneStormDuration/3);

@@ -529,10 +529,6 @@ int32 SpellEffectInfo::CalcValue(Unit const* caster /*= nullptr*/, int32 const* 
             *variance = valueVariance;
     }
 
-    bool canScale = true;
-    if (_spellInfo->HasAttribute(SPELL_ATTR6_NO_DONE_PCT_DAMAGE_MODS) && !castItemId)
-        canScale = false;
-
     // base amount modification based on spell lvl vs caster lvl
     if (Scaling.Coefficient != 0.0f)
     {
@@ -714,10 +710,12 @@ float SpellEffectInfo::CalcRadius(Unit* caster, Spell* spell) const
     }
 
     if (HasMaxRadius())
+    {
         if (TargetB.GetTarget() != TARGET_DEST_DEST_RANDOM)
             radius = std::max(std::min(radius, MaxRadiusEntry->RadiusMax), MaxRadiusEntry->RadiusMin);
         else
             radius = frand(std::min(radius, MaxRadiusEntry->RadiusMax), MaxRadiusEntry->RadiusMax);
+    }
 
     return radius;
 }
@@ -2820,6 +2818,7 @@ void SpellInfo::_LoadSpellSpecific()
                         /// @workaround For non-stacking tracking spells (We need generic solution)
                         if (Id == 30645) // Gas Cloud Tracking
                             return SPELL_SPECIFIC_NORMAL;
+                        /* fallthrough */
                     case SPELL_AURA_TRACK_RESOURCES:
                     case SPELL_AURA_TRACK_STEALTHED:
                         return SPELL_SPECIFIC_TRACKER;
@@ -3353,7 +3352,7 @@ void SpellInfo::_LoadImmunityInfo()
                                 immuneInfo.AuraTypeImmune.insert(SPELL_AURA_MOD_FEAR);
                                 immuneInfo.AuraTypeImmune.insert(SPELL_AURA_MOD_FEAR_2);
                                 immuneInfo.AuraTypeImmune.insert(SPELL_AURA_MOD_ROOT_2);
-                                // no break intended
+                                /* fallthrough */
                             case 61869: // Overload
                             case 63481:
                             case 61887: // Lightning Tendrils

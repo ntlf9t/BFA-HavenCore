@@ -18,6 +18,7 @@
 #include "WardenWin.h"
 #include "Common.h"
 #include "ByteBuffer.h"
+#include "CryptoHash.h"
 #include "CryptoRandom.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -35,7 +36,6 @@
 #include "WorldSession.h"
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
-#include <openssl/md5.h>
 
 WardenWin::WardenWin() : Warden(), _serverTicks(0) {}
 
@@ -54,15 +54,15 @@ void WardenWin::Init(WorldSession* session, SessionKey const& K)
     _inputCrypto.Init(_inputKey);
     _outputCrypto.Init(_outputKey);
     TC_LOG_DEBUG("warden", "Server side warden for client %u initializing...", session->GetAccountId());
-    TC_LOG_DEBUG("warden", "C->S Key: %s", ByteArrayToHexStr(_inputKey, 16).c_str());
-    TC_LOG_DEBUG("warden", "S->C Key: %s", ByteArrayToHexStr(_outputKey, 16).c_str());
-    TC_LOG_DEBUG("warden", "  Seed: %s", ByteArrayToHexStr(_seed, 16).c_str());
+    TC_LOG_DEBUG("warden", "C->S Key: %s", ByteArrayToHexStr(_inputKey).c_str());
+    TC_LOG_DEBUG("warden", "S->C Key: %s", ByteArrayToHexStr(_outputKey).c_str());
+    TC_LOG_DEBUG("warden", "  Seed: %s", ByteArrayToHexStr(_seed).c_str());
     TC_LOG_DEBUG("warden", "Loading Module...");
 
     _module = GetModuleForClient();
 
-    TC_LOG_DEBUG("warden", "Module Key: %s", ByteArrayToHexStr(_module->Key, 16).c_str());
-    TC_LOG_DEBUG("warden", "Module ID: %s", ByteArrayToHexStr(_module->Id, 16).c_str());
+    TC_LOG_DEBUG("warden", "Module Key: %s", ByteArrayToHexStr(_module->Key).c_str());
+    TC_LOG_DEBUG("warden", "Module ID: %s", ByteArrayToHexStr(_module->Id).c_str());
     RequestModule();
 }
 
@@ -79,10 +79,8 @@ ClientWardenModule* WardenWin::GetModuleForClient()
     memcpy(mod->Key, Module.ModuleKey, 16);
 
     // md5 hash
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, mod->CompressedData, length);
-    MD5_Final((uint8*)&mod->Id, &ctx);
+    Trinity::Crypto::MD5::Digest id = Trinity::Crypto::MD5::GetDigestOf(mod->CompressedData, size_t(length));
+    memcpy(mod->Id, id.data(), id.size());
 
     return mod;
 }

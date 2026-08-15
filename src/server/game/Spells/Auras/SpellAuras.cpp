@@ -1443,7 +1443,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     if (removeMode != AURA_REMOVE_BY_EXPIRE)
                         break;
 
-                    if (Player* player = caster->ToPlayer())
+                    if (caster->ToPlayer())
                     {
                         caster->GetSpellHistory()->ResetCooldown(1784, false);
                         caster->CastSpell(caster, 1784, true);
@@ -1494,6 +1494,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 }
             }
         }
+        /* fallthrough */
         case 115192: // Subterfuge
         case 185313: // Shadowdance (Shapeshift)
         {
@@ -2516,7 +2517,7 @@ void UnitAura::FillTargetMap(std::unordered_map<Unit*, uint32>& targets, Unit* c
                     }
                     case SPELL_EFFECT_APPLY_AREA_AURA_PET:
                         units.push_back(GetUnitOwner());
-                        // no break
+                        /* fallthrough */
                     case SPELL_EFFECT_APPLY_AREA_AURA_OWNER:
                     {
                         if (Unit* owner = GetUnitOwner()->GetCharmerOrOwner())

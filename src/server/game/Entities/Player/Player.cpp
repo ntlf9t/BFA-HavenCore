@@ -685,7 +685,6 @@ bool Player::Create(ObjectGuid::LowType guidlow, WorldPackets::Character::Charac
                 // special amount for food/drink
                 if (iProto->GetClass() == ITEM_CLASS_CONSUMABLE && iProto->GetSubClass() == ITEM_SUBCLASS_FOOD_DRINK)
                 {
-                    // Template effects only: this walks stored item ids, not instances.
                     if (iProto->Effects.size() >= 1)
                     {
                         switch (iProto->Effects[0]->SpellCategoryID)
@@ -1915,7 +1914,7 @@ void Player::ProcessDelayedOperations()
             uint8 teamID = battle->Teams[PET_BATTLE_TEAM_1]->OwnerGuid == GetGUID() ? PET_BATTLE_TEAM_1 : PET_BATTLE_TEAM_2;
 
             PetBattleRequest request;
-            memcpy(&request, &battle->PvPMatchMakingRequest, sizeof(PetBattleRequest)); //@TODO check that
+            request = battle->PvPMatchMakingRequest;
 
             auto& matchMakingRequest = battle->PvPMatchMakingRequest;
 
@@ -3343,8 +3342,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
 
             if (skill_max_value < new_skill_max_value)
                 skill_max_value = new_skill_max_value;
-
-            SetSkill(spellLearnSkill->skill, spellLearnSkill->step, skill_value, skill_max_value);
+SetSkill(spellLearnSkill->skill, spellLearnSkill->step, skill_value, skill_max_value);
         }
     }
     else
@@ -3492,12 +3490,6 @@ void Player::LearnSpell(uint32 spell_id, bool dependent, int32 fromSkill /*= 0*/
         packet.SpellID.push_back(spell_id);
         packet.SuppressMessaging = suppressMessaging;
         GetSession()->SendPacket(packet.Write());
-
-        if (spell_id == 119467) // Battle Pet Training
-        {
-            GetSession()->SendBattlePetJournal();
-            GetSession()->SendPetBattleSlotUpdates(true);
-        }
     }
 
     // learn all disabled higher ranks and required spells (recursive)
@@ -5649,19 +5641,29 @@ bool Player::UpdateCraftSkill(uint32 spellid)
     {
         if (_spell_idx->second->SkillupSkillLineID)
         {
-            uint32 SkillValue = GetPureSkillValue(_spell_idx->second->SkillupSkillLineID);
+            uint32 skillId = _spell_idx->second->SkillupSkillLineID;
+
+            // Classic Inscription recipes reference the expansion-specific
+            // child skill line in DB2, while the player stores/progresses
+            // Inscription on the parent skill line.
+            if (skillId == SKILL_INSCRIPTION_2)
+                skillId = SKILL_INSCRIPTION;
+            else if (skillId == SKILL_ENGINEERING_2)
+                skillId = SKILL_ENGINEERING;
+
+            uint32 SkillValue = GetPureSkillValue(skillId);
 
             // Alchemy Discoveries here
             SpellInfo const* spellEntry = sSpellMgr->GetSpellInfo(spellid);
             if (spellEntry && spellEntry->Mechanic == MECHANIC_DISCOVERY)
             {
-                if (uint32 discoveredSpell = GetSkillDiscoverySpell(_spell_idx->second->SkillupSkillLineID, spellid, this))
+                if (uint32 discoveredSpell = GetSkillDiscoverySpell(skillId, spellid, this))
                     LearnSpell(discoveredSpell, false);
             }
 
             uint32 craft_skill_gain = _spell_idx->second->NumSkillUps * sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
 
-            return UpdateSkillPro(_spell_idx->second->SkillupSkillLineID, SkillGainChance(SkillValue,
+            return UpdateSkillPro(skillId, SkillGainChance(SkillValue,
                 _spell_idx->second->TrivialSkillLineRankHigh,
                 (_spell_idx->second->TrivialSkillLineRankHigh + _spell_idx->second->TrivialSkillLineRankLow)/2,
                 _spell_idx->second->TrivialSkillLineRankLow),
@@ -5691,6 +5693,7 @@ bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLeve
         case SKILL_LEGION_HERBALISM:
         case SKILL_KUL_TIRAN_HERBALISM:
         case SKILL_JEWELCRAFTING:
+        case SKILL_JEWELCRAFTING_2:
         case SKILL_INSCRIPTION:
             return UpdateSkillPro(SkillId, SkillGainChance(SkillValue, RedLevel+100, RedLevel+50, RedLevel+25)*Multiplicator, gathering_skill_gain);
         case SKILL_SKINNING:
@@ -5801,6 +5804,27 @@ bool Player::UpdateSkillPro(uint16 skillId, int32 chance, uint32 step)
         new_value = max;
 
     SetSkillRank(itr->second.pos, new_value);
+
+    // Classic Inscription progression is resolved from the expansion-specific
+    // recipe skill line to the parent skill, so explicitly send the skill-up
+    // chat notification for that parent skill. Other professions already
+    // receive their native client notification and must not be duplicated.
+    if (skillId == SKILL_INSCRIPTION || skillId == SKILL_ENGINEERING)
+    {
+        if (SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillId))
+        {
+            LocaleConstant locale = GetSession()->GetSessionDbcLocale();
+
+            std::ostringstream skillMessage;
+            skillMessage << "Your skill in " << skillLine->DisplayName->Str[locale]
+                         << " has increased to " << new_value << ".";
+
+            WorldPackets::Chat::Chat packet;
+            packet.Initialize(CHAT_MSG_SKILL, LANG_UNIVERSAL, this, this, skillMessage.str());
+            SendDirectMessage(packet.Write());
+        }
+    }
+
     if (itr->second.uState != SKILL_NEW)
         itr->second.uState = SKILL_CHANGED;
 
@@ -5844,6 +5868,11 @@ void Player::UpdateSkillsForLevel()
         uint32 pskill = itr->first;
         SkillRaceClassInfoEntry const* rcEntry = sDB2Manager.GetSkillRaceClassInfo(pskill, getRace(), getClass());
         if (!rcEntry)
+            continue;
+
+        // Professions and riding use their own progression and must not be
+        // scaled from character level.
+        if (IsProfessionOrRidingSkill(rcEntry->SkillID))
             continue;
 
         if (GetSkillRangeType(rcEntry) == SKILL_RANGE_LEVEL)
@@ -5920,8 +5949,7 @@ void Player::SetSkill(uint16 id, uint16 step, uint16 newVal, uint16 maxVal)
 {
     if (!id)
         return;
-
-    uint16 currVal;
+uint16 currVal;
     SkillStatusMap::iterator itr = mSkillStatus.find(id);
 
     // Handle already stored skills
@@ -6031,7 +6059,7 @@ void Player::SetSkill(uint16 id, uint16 step, uint16 newVal, uint16 maxVal)
                     if (SkillTiersEntry const* tier = sObjectMgr->GetSkillTier(rcEntry->SkillTierID))
                     {
                         uint16 skillval = GetPureSkillValue(skillEntry->ParentSkillLineID);
-                        SetSkill(skillEntry->ParentSkillLineID, skillEntry->ParentTierIndex, std::max<uint16>(skillval, 1), tier->Value[skillEntry->ParentTierIndex - 1]);
+SetSkill(skillEntry->ParentSkillLineID, skillEntry->ParentTierIndex, std::max<uint16>(skillval, 1), tier->Value[skillEntry->ParentTierIndex - 1]);
                     }
                 }
             }
@@ -6085,16 +6113,40 @@ void Player::SetSkill(uint16 id, uint16 step, uint16 newVal, uint16 maxVal)
             // permanent bonuses
             for (AuraEffect* effect : GetAuraEffectsByType(SPELL_AURA_MOD_SKILL_TALENT))
                 if (effect->GetMiscValue() == int32(id))
+                {
                     effect->HandleEffect(this, AURA_EFFECT_HANDLE_SKILL, true);
+                }
 
-                    if (id == SKILL_ARCHAEOLOGY)
-                    {
-                        sArchaeologyMgr->AddDigsitesToMap(this, 0);
-                        sArchaeologyMgr->AddDigsitesToMap(this, 1);
-                    }
+            if (id == SKILL_ARCHAEOLOGY)
+            {
+                sArchaeologyMgr->AddDigsitesToMap(this, 0);
+                sArchaeologyMgr->AddDigsitesToMap(this, 1);
+            }
 
             // Learn all spells for skill
             LearnSkillRewardedSpells(id, newVal);
+        }
+    }
+    // Expansion-specific profession skills store their progression on the child
+    // skill line, while the client uses the parent profession skill for
+    // gathering-node difficulty/color. Keep the parent rank synchronized with
+    // the child and prevent character level from driving profession difficulty.
+    if (newVal)
+    {
+        if (SkillLineEntry const* skillEntry = sSkillLineStore.LookupEntry(id))
+        {
+            if (skillEntry->ParentSkillLineID && skillEntry->ParentTierIndex > 0)
+            {
+                uint16 parentValue = newVal;
+                uint16 parentMax = maxVal;
+
+                if (GetPureSkillValue(skillEntry->ParentSkillLineID) != parentValue ||
+                    GetPureMaxSkillValue(skillEntry->ParentSkillLineID) != parentMax ||
+                    GetSkillStep(skillEntry->ParentSkillLineID) != skillEntry->ParentTierIndex)
+                {
+                    SetSkill(skillEntry->ParentSkillLineID, skillEntry->ParentTierIndex, parentValue, parentMax);
+                }
+            }
         }
     }
 }
@@ -8342,12 +8394,13 @@ void Player::CastAllObtainSpells()
 
 void Player::ApplyItemObtainSpells(Item* item, bool apply)
 {
-    for (ItemEffectEntry const* effectData : item->GetEffects())
+    ItemTemplate const* itemTemplate = item->GetTemplate();
+    for (uint8 i = 0; i < itemTemplate->Effects.size(); ++i)
     {
-        if (effectData->TriggerType != ITEM_SPELLTRIGGER_ON_OBTAIN) // On obtain trigger
+        if (itemTemplate->Effects[i]->TriggerType != ITEM_SPELLTRIGGER_ON_OBTAIN) // On obtain trigger
             continue;
 
-        int32 const spellId = effectData->SpellID;
+        int32 const spellId = itemTemplate->Effects[i]->SpellID;
         if (spellId <= 0)
             continue;
 
@@ -8388,11 +8441,14 @@ void Player::ApplyItemEquipSpell(Item* item, bool apply, bool formChange /*= fal
     if (!item)
         return;
 
-    if (!item->GetTemplate())
+    ItemTemplate const* proto = item->GetTemplate();
+    if (!proto)
         return;
 
-    for (ItemEffectEntry const* effectData : item->GetEffects())
+    for (uint8 i = 0; i < proto->Effects.size(); ++i)
     {
+        ItemEffectEntry const* effectData = proto->Effects[i];
+
         // wrong triggering type
         if (apply && effectData->TriggerType != ITEM_SPELLTRIGGER_ON_EQUIP)
             continue;
@@ -8730,8 +8786,10 @@ void Player::CastItemCombatSpell(DamageInfo const& damageInfo, Item* item, ItemT
     bool canTrigger = (damageInfo.GetHitMask() & (PROC_HIT_NORMAL | PROC_HIT_CRITICAL | PROC_HIT_ABSORB)) != 0;
     if (canTrigger)
     {
-        for (ItemEffectEntry const* effectData : item->GetEffects())
+        for (uint8 i = 0; i < proto->Effects.size(); ++i)
         {
+            ItemEffectEntry const* effectData = proto->Effects[i];
+
             // wrong triggering type
             if (effectData->TriggerType != ITEM_SPELLTRIGGER_CHANCE_ON_HIT)
                 continue;
@@ -8858,8 +8916,6 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, Objec
 {
     ItemTemplate const* proto = item->GetTemplate();
     // special learning case
-    // Template effects only: the learn-spell special case is keyed to the two fixed
-    // template effect slots, which bonus-granted effects are appended after.
     if (proto->Effects.size() >= 2)
     {
         if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
@@ -8891,8 +8947,10 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, Objec
     }
 
     // item spells cast at use
-    for (ItemEffectEntry const* effectData : item->GetEffects())
+    for (uint8 i = 0; i < proto->Effects.size(); ++i)
     {
+        ItemEffectEntry const* effectData = proto->Effects[i];
+
         // wrong triggering type
         if (effectData->TriggerType != ITEM_SPELLTRIGGER_ON_USE)
             continue;
@@ -9179,6 +9237,7 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, bool aeLooting/* = fa
         if (go->getLootState() == GO_READY)
         {
             uint32 lootid = go->GetGOInfo()->GetLootId();
+
             if (Battleground* bg = GetBattleground())
                 if (!bg->CanActivateGO(go->GetEntry(), GetTeam()))
                 {
@@ -10193,7 +10252,7 @@ void Player::SendInitWorldStates(uint32 zoneid, uint32 areaid)
         case 4197:
             if (bf && bf->GetTypeId() == BATTLEFIELD_WG)
                 bf->FillInitialWorldStates(packet);
-            // No break here, intended.
+            /* fallthrough */
         default:
             packet.Worldstates.emplace_back(0x914, 0x0);           // 7
             packet.Worldstates.emplace_back(0x913, 0x0);           // 8
@@ -12473,8 +12532,8 @@ InventoryResult Player::CanBankItem(uint8 bag, uint8 slot, ItemPosCountVec &dest
 
     // not specific slot or have space for partly store only in specific slot
 
-    uint8 slotItemStart = reagentBank ? REAGENT_SLOT_START : BANK_SLOT_ITEM_START;
-    uint8 slotItemEnd   = reagentBank ? REAGENT_SLOT_END   : BANK_SLOT_ITEM_END;
+    uint8 slotItemStart = reagentBank ? static_cast<uint8>(REAGENT_SLOT_START) : static_cast<uint8>(BANK_SLOT_ITEM_START);
+    uint8 slotItemEnd   = reagentBank ? static_cast<uint8>(REAGENT_SLOT_END) : static_cast<uint8>(BANK_SLOT_ITEM_END);
 
     // in specific bag
     if (bag != NULL_BAG)
@@ -12710,7 +12769,6 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto, bool skipRequiredL
         return EQUIP_ERR_CANT_EQUIP_REPUTATION;
 
     // learning (recipes, mounts, pets, etc.)
-    // Template effects only: same fixed learn-spell slots as CastItemUseSpell.
     if (proto->Effects.size() >= 2)
         if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
             if (HasSpell(proto->Effects[1]->SpellID))
@@ -19372,9 +19430,8 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder* holder)
 
     // load skills after InitStatsForLevel because it triggering aura apply also
     _LoadSkills(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_SKILLS));
-    UpdateSkillsForLevel(); //update skills after load, to make sure they are correctly update at player load
-
-    SetNumRespecs(fields[77].GetUInt8());
+UpdateSkillsForLevel(); //update skills after load, to make sure they are correctly update at player load
+SetNumRespecs(fields[77].GetUInt8());
     SetPrimarySpecialization(fields[36].GetUInt32());
     SetActiveTalentGroup(fields[64].GetUInt8());
     ChrSpecializationEntry const* primarySpec = sChrSpecializationStore.LookupEntry(GetPrimarySpecialization());
@@ -24431,7 +24488,7 @@ bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uin
     uint64 price = 0;
     if (crItem->IsGoldRequired(pProto) && crItem->GetBuyPrice(pProto) > 0) //Assume price cannot be negative (do not know why it is int32)
     {
-        float buyPricePerItem = float(crItem->GetBuyPrice(pProto)) / pProto->GetBuyCount();
+        double buyPricePerItem = double(crItem->GetBuyPrice(pProto)) / pProto->GetBuyCount();
         uint64 maxCount = MAX_MONEY_AMOUNT / buyPricePerItem;
         if ((uint64)count > maxCount)
         {
@@ -24600,8 +24657,6 @@ void Player::UpdatePotionCooldown(Spell* spell)
     {
         // spell/item pair let set proper cooldown (except non-existing charged spell cooldown spellmods for potions)
         if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(m_lastPotionId))
-            // Template effects only: UpdatePotionCooldown is keyed off m_lastPotionId,
-            // an item id kept after the Item itself is gone.
             for (uint8 idx = 0; idx < proto->Effects.size(); ++idx)
                 if (proto->Effects[idx]->TriggerType == ITEM_SPELLTRIGGER_ON_USE)
                     if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(proto->Effects[idx]->SpellID))
@@ -25559,8 +25614,10 @@ void Player::ApplyEquipCooldown(Item* pItem)
         return;
 
     std::chrono::steady_clock::time_point now = GameTime::GetGameTimeSteadyPoint();
-    for (ItemEffectEntry const* effectData : pItem->GetEffects())
+    for (uint8 i = 0; i < proto->Effects.size(); ++i)
     {
+        ItemEffectEntry const* effectData = proto->Effects[i];
+
         // apply proc cooldown to equip auras if we have any
         if (effectData->TriggerType == ITEM_SPELLTRIGGER_ON_EQUIP)
         {
@@ -25666,7 +25723,7 @@ void Player::LearnCustomSpells()
 
 void Player::LearnDefaultSkills()
 {
-    // learn default race/class skills
+// learn default race/class skills
     PlayerInfo const* info = sObjectMgr->GetPlayerInfo(getRace(), getClass());
     for (PlayerCreateInfoSkills::const_iterator itr = info->skills.begin(); itr != info->skills.end(); ++itr)
     {
@@ -25684,7 +25741,8 @@ void Player::LearnDefaultSkills()
 void Player::LearnDefaultSkill(SkillRaceClassInfoEntry const* rcInfo)
 {
     uint16 skillId = rcInfo->SkillID;
-    switch (GetSkillRangeType(rcInfo))
+    // TEMP DEBUG - investigate Mining parent skill being tied to player level
+switch (GetSkillRangeType(rcInfo))
     {
         case SKILL_RANGE_LANGUAGE:
             SetSkill(skillId, 0, 300, 300);
@@ -27505,7 +27563,8 @@ void Player::ApplyOnItems(uint8 type, std::function<bool(Player*, Item*, uint8, 
     {
     case 1:
     {
-        for (uint32 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_START + GetInventorySlotCount(); i++)
+        uint32 const inventoryEnd = uint32(INVENTORY_SLOT_ITEM_START) + uint32(GetInventorySlotCount());
+        for (uint32 i = uint32(INVENTORY_SLOT_ITEM_START); i < inventoryEnd; ++i)
             if (Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
                 if (!function(this, item, INVENTORY_SLOT_BAG_0, i))
                     return;
@@ -27586,15 +27645,18 @@ void Player::_LoadSkills(PreparedQueryResult result)
                 mSkillStatus.insert(SkillStatusMap::value_type(skill, SkillStatusData(0, SKILL_DELETED)));
                 continue;
             }
-
             // set fixed skill ranges
             switch (GetSkillRangeType(rcEntry))
             {
                 case SKILL_RANGE_RANK:
                 {
                     if (SkillTiersEntry const* skillTier = sObjectMgr->GetSkillTier(rcEntry->SkillTierID))
-                        if (max < skillTier->Value[0])
-                            max = skillTier->Value[0];
+                        {
+    uint16 tierValue = uint16(skillTier->Value[0]);
+
+    if (max < tierValue)
+        max = tierValue;
+}
 
                     break;
                 }
@@ -29652,7 +29714,7 @@ void Player::AddGarrisonMission(uint32 garrMissionId)
             garrison->AddMission(garrMissionId);
 }
 
-void Player::AddGarrisonShipment(uint32 garrShipmentId)
+void Player::AddGarrisonShipment(uint32 /*garrShipmentId*/)
 {
     /*
     if (CharShipmentEntry const* charshipmentEntry = sCharShipmentStore.LookupEntry(garrShipmentId))
@@ -30288,8 +30350,14 @@ TrainerSpellState Player::GetTrainerSpellState(TrainerSpell const* trainer_spell
     if (hasSpell)
         return TRAINER_SPELL_GRAY;
 
+    // BFA uses expansion-specific profession skill lines. Classic Jewelcrafting
+    // trainer data can still reference the generic Jewelcrafting parent skill.
+    uint32 const reqSkillLine = trainer_spell->ReqSkillLine == SKILL_JEWELCRAFTING
+        ? SKILL_JEWELCRAFTING_2
+        : trainer_spell->ReqSkillLine;
+
     // check skill requirement
-    if (trainer_spell->ReqSkillLine && GetBaseSkillValue(trainer_spell->ReqSkillLine) < trainer_spell->ReqSkillRank)
+    if (reqSkillLine && GetBaseSkillValue(reqSkillLine) < trainer_spell->ReqSkillRank)
         return TRAINER_SPELL_RED;
 
     // check level requirement
@@ -31042,22 +31110,19 @@ uint32 Player::GetUnlockedPetBattleSlot()
 
 void Player::UnsummonCurrentBattlePetIfAny(bool p_Unvolontary)
 {
+    if (!_battlePetSummon)
+        return;
+
     if (!p_Unvolontary)
         _lastSummonedBattlePet = 0;
 
-    Creature* pet = GetSummonedBattlePet();
-    if (!pet && !GetCritterGUID().IsEmpty())
-        pet = ObjectAccessor::GetCreatureOrPetOrVehicle(*this, GetCritterGUID());
-
-    if (pet)
+    if (Creature* pet = GetSummonedBattlePet())
     {
         pet->DespawnOrUnsummon();
         pet->AddObjectToRemoveList();
     }
 
     _battlePetSummon.Clear();
-    SetCritterGUID(ObjectGuid::Empty);
-    SetSummonedBattlePetGUID(ObjectGuid::Empty);
 }
 
 void Player::SummonBattlePet(ObjectGuid journalID)
@@ -31086,11 +31151,7 @@ void Player::SummonBattlePet(ObjectGuid journalID)
     if (!speciesEntry)
         return;
 
-    SetSummonedBattlePetGUID(journalID);
     CastSpell(this, speciesEntry->SummonSpellID ? speciesEntry->SummonSpellID : uint32(118301));
-
-    _battlePetSummon = GetCritterGUID();
-    _lastSummonedBattlePet = journalID.GetCounter();
 }
 
 Creature* Player::GetSummonedBattlePet()
@@ -31233,7 +31294,6 @@ bool Player::AddBattlePetWithSpeciesId(BattlePetSpeciesEntry const* entry, uint1
     pet->Health = pet->InfoMaxHealth;
     auto guidlow = pet->AddToPlayer(this);
     _battlePets.emplace(pet->JournalID, pet);
-    UpdateCriteria(CRITERIA_TYPE_COLLECT_BATTLEPET);
 
     if (sendUpdate)
     {
@@ -31293,7 +31353,8 @@ bool Player::_LoadPetBattles(PreparedQueryResult result)
         {
             auto BattlePetPtr = std::make_shared<BattlePet>();
             BattlePetPtr->Load(result->Fetch());
-            alreadyKnownPet.insert(BattlePetPtr->Species);
+            if (!alreadyKnownPet.insert(BattlePetPtr->Species).second)
+                continue;
 
             _battlePets.emplace(BattlePetPtr->JournalID, BattlePetPtr);
 
@@ -31314,7 +31375,7 @@ bool Player::_LoadPetBattles(PreparedQueryResult result)
     _oldPetBattleSpellToMerge.clear();
 
     GetSession()->SendBattlePetJournal();
-    UpdateCriteria(CRITERIA_TYPE_COLLECT_BATTLEPET);
+    UpdateCriteria(CRITERIA_TYPE_COLLECT_BATTLEPET, 1);
 
     return true;
 }

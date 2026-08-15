@@ -4696,9 +4696,8 @@ void Map::RemoveBattlePet(Creature* creature)
         m_wildBattlePetPool[creature->GetZoneId()][creature->GetEntry()].ToBeReplaced.erase(creature);
 }
 
-void Map::PopulateBattlePet(uint32 diff)
+void Map::PopulateBattlePet(uint32 /*diff*/)
 {
-    uint32 _s = getMSTime();
     for (auto& zone : m_wildBattlePetPool)
     {
         uint16 zoneId = zone.first;

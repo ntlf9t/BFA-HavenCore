@@ -22,8 +22,8 @@
 #include "Errors.h"
 #include <array>
 #include <string>
+#include <type_traits>
 #include <vector>
-#include "advstd.h"
 
 enum LocaleConstant : uint8;
 
@@ -319,7 +319,7 @@ TC_COMMON_API uint32 GetPID();
 
 TC_COMMON_API std::string ByteArrayToHexStr(uint8 const* bytes, size_t length, bool reverse = false);
 template <typename Container>
-std::string ByteArrayToHexStr(Container const& c, bool reverse = false) { return ByteArrayToHexStr(advstd::data(c), advstd::size(c), reverse); }
+std::string ByteArrayToHexStr(Container const& c, bool reverse = false) { return ByteArrayToHexStr(std::data(c), std::size(c), reverse); }
 TC_COMMON_API void HexStrToByteArray(std::string const& str, uint8* out, bool reverse = false);
 template <size_t Size>
 void HexStrToByteArray(std::string const& str, std::array<uint8, Size>& buf, bool reverse = false)
@@ -441,15 +441,6 @@ public:
     inline bool operator !=(const flag128 &right) const
     {
         return !this->operator ==(right);
-    }
-
-    inline flag128 & operator =(const flag128 &right)
-    {
-        part[0] = right.part[0];
-        part[1] = right.part[1];
-        part[2] = right.part[2];
-        part[3] = right.part[3];
-        return *this;
     }
 
     inline flag128 operator &(const flag128 &right) const

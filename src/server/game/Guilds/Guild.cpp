@@ -1094,8 +1094,8 @@ InventoryResult Guild::BankMoveItemData::CanStore(Item* pItem, bool swap)
 // Guild
 Guild::Guild():
     m_id(UI64LIT(0)),
-    m_leaderGuid(),
     m_flags(0),
+    m_leaderGuid(),
     m_createdDate(0),
     m_accountsNumber(0),
     m_bankMoney(0),
@@ -1932,8 +1932,7 @@ void Guild::HandleShiftRank(WorldSession* /*session*/, uint32 id, bool up)
     if (!rankinfo || !rankinfo2)
         return;
 
-    RankInfo tmp = NULL;
-    tmp = *rankinfo2;
+    RankInfo tmp = *rankinfo2;
     rankinfo2->SetName(rankinfo->GetName());
     rankinfo2->SetRights(rankinfo->GetRights());
     rankinfo->SetName(tmp.GetName());

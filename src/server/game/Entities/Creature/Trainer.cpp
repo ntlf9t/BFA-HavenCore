@@ -128,7 +128,15 @@ namespace Trainer
             return SpellState::Unavailable;
 
         // check skill requirement
-        if (trainerSpell->ReqSkillLine && player->GetBaseSkillValue(trainerSpell->ReqSkillLine) < trainerSpell->ReqSkillRank)
+        uint32 requiredSkillLine = trainerSpell->ReqSkillLine;
+
+        // Classic Enchanting progression is stored on the expansion-specific
+        // child skill line, while trainer requirements can reference the
+        // parent Enchanting skill line.
+        if (requiredSkillLine == SKILL_ENCHANTING)
+            requiredSkillLine = SKILL_ENCHANTING_2;
+
+        if (requiredSkillLine && player->GetBaseSkillValue(requiredSkillLine) < trainerSpell->ReqSkillRank)
             return SpellState::Unavailable;
 
         for (int32 reqAbility : trainerSpell->ReqAbility)

@@ -18,6 +18,7 @@
 #include "WardenMac.h"
 #include "ByteBuffer.h"
 #include "Common.h"
+#include "CryptoHash.h"
 #include "GameTime.h"
 #include "Log.h"
 #include "Opcodes.h"
@@ -27,8 +28,6 @@
 #include "WardenModuleMac.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
-
-#include <openssl/md5.h>
 
 WardenMac::WardenMac() : Warden() { }
 
@@ -55,15 +54,15 @@ void WardenMac::Init(WorldSession* pClient, SessionKey const& K)
     _inputCrypto.Init(_inputKey);
     _outputCrypto.Init(_outputKey);
     TC_LOG_DEBUG("warden", "Server side warden for client %u initializing...", pClient->GetAccountId());
-    TC_LOG_DEBUG("warden", "C->S Key: %s", ByteArrayToHexStr(_inputKey, 16).c_str());
-    TC_LOG_DEBUG("warden", "S->C Key: %s", ByteArrayToHexStr(_outputKey, 16).c_str());
-    TC_LOG_DEBUG("warden", "  Seed: %s", ByteArrayToHexStr(_seed, 16).c_str());
+    TC_LOG_DEBUG("warden", "C->S Key: %s", ByteArrayToHexStr(_inputKey).c_str());
+    TC_LOG_DEBUG("warden", "S->C Key: %s", ByteArrayToHexStr(_outputKey).c_str());
+    TC_LOG_DEBUG("warden", "  Seed: %s", ByteArrayToHexStr(_seed).c_str());
     TC_LOG_DEBUG("warden", "Loading Module...");
 
     _module = GetModuleForClient();
 
-    TC_LOG_DEBUG("warden", "Module Key: %s", ByteArrayToHexStr(_module->Key, 16).c_str());
-    TC_LOG_DEBUG("warden", "Module ID: %s", ByteArrayToHexStr(_module->Id, 16).c_str());
+    TC_LOG_DEBUG("warden", "Module Key: %s", ByteArrayToHexStr(_module->Key).c_str());
+    TC_LOG_DEBUG("warden", "Module ID: %s", ByteArrayToHexStr(_module->Id).c_str());
     RequestModule();
 }
 
@@ -80,10 +79,8 @@ ClientWardenModule* WardenMac::GetModuleForClient()
     memcpy(mod->Key, Module_0DBBF209A27B1E279A9FEC5C168A15F7_Key, 16);
 
     // md5 hash
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, mod->CompressedData, len);
-    MD5_Final((uint8*)&mod->Id, &ctx);
+    Trinity::Crypto::MD5::Digest id = Trinity::Crypto::MD5::GetDigestOf(mod->CompressedData, size_t(len));
+    memcpy(mod->Id, id.data(), id.size());
 
     return mod;
 }
@@ -250,16 +247,11 @@ void WardenMac::HandleData(ByteBuffer &buff)
         //found = true;
     }
 
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, str.c_str(), str.size());
-    uint8 ourMD5Hash[16];
-    MD5_Final(ourMD5Hash, &ctx);
+    Trinity::Crypto::MD5::Digest ourMD5Hash = Trinity::Crypto::MD5::GetDigestOf(str);
+    Trinity::Crypto::MD5::Digest theirsMD5Hash;
+    buff.read(theirsMD5Hash.data(), theirsMD5Hash.size());
 
-    uint8 theirsMD5Hash[16];
-    buff.read(theirsMD5Hash, 16);
-
-    if (memcmp(ourMD5Hash, theirsMD5Hash, 16) != 0)
+    if (ourMD5Hash != theirsMD5Hash)
     {
         TC_LOG_DEBUG("warden", "Handle data failed: MD5 hash is wrong!");
         //found = true;

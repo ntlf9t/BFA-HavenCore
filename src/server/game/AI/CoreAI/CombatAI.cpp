@@ -409,7 +409,7 @@ void VehicleAI::CheckConditions(uint32 diff)
         m_ConditionsTimer -= diff;
 }
 
-int BattlePetAI::Permissible(const Creature* creature)
+int BattlePetAI::Permissible(const Creature* /*creature*/)
 {
     return PERMIT_BASE_NO;
 }
@@ -418,7 +418,7 @@ void BattlePetAI::InitializeAI()
 {
 }
 
-void BattlePetAI::UpdateAI(uint32 diff)
+void BattlePetAI::UpdateAI(uint32 /*diff*/)
 {
     if (!me->IsInWorld() || !me->IsAlive())
         return;
@@ -428,7 +428,7 @@ void BattlePetAI::UpdateAI(uint32 diff)
         me->GetMotionMaster()->MoveFollow(owner, me->GetFollowDistance(), me->GetFollowAngle());
 }
 
-void BattlePetAI::MovementInform(uint32 moveType, uint32 data)
+void BattlePetAI::MovementInform(uint32 moveType, uint32 /*data*/)
 {
     switch (moveType)
     {

@@ -6169,11 +6169,15 @@ void Unit::ValidateAttackersAndOwnTarget()
 
     // remove our own victim
     if (Unit* victim = GetVictim())
+    {
         if (!IsValidAttackTarget(victim))
+        {
             if (Creature* thisCreature = ToCreature())
                 thisCreature->AI()->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_HOSTILES);
             else
                 AttackStop();
+        }
+    }
 }
 
 void Unit::CombatStop(bool includingCast)
@@ -7337,6 +7341,7 @@ float Unit::GetUnitSpellCriticalChance(Unit* victim, Spell* spell, AuraEffect co
                     return 0.0f;
             }
         // Do not add a break here, case fallthrough is intentional! Adding a break will make above spells unable to crit.
+            /* fallthrough */
         case SPELL_DAMAGE_CLASS_MAGIC:
         {
             if (schoolMask & SPELL_SCHOOL_MASK_NORMAL)
@@ -10132,7 +10137,7 @@ bool Unit::IsAlliedRace()
     if (Player* player = ToPlayer())
     {
         /* pandaren death knight (basically same thing as allied death knight) */
-        if ( (player->getRace() == RACE_PANDAREN_ALLIANCE) || (player->getRace() == RACE_PANDAREN_HORDE) || (player->getRace() == RACE_PANDAREN_NEUTRAL) && (player->getClass() == CLASS_DEATH_KNIGHT))
+        if ((player->getRace() == RACE_PANDAREN_ALLIANCE) || (player->getRace() == RACE_PANDAREN_HORDE) || ((player->getRace() == RACE_PANDAREN_NEUTRAL) && (player->getClass() == CLASS_DEATH_KNIGHT)))
         {
             return true;
         }
@@ -14109,7 +14114,7 @@ void Unit::SendClearTarget()
 
 int32 Unit::GetResistance(SpellSchoolMask mask) const
 {
-    Optional<int32> resist;
+    Optional<int32> resist = boost::make_optional(false, 0);
     for (int i = SPELL_SCHOOL_NORMAL; i < MAX_SPELL_SCHOOL; ++i)
     {
         int32 schoolResistance = GetResistance(SpellSchools(i)) + GetBonusResistanceMod(SpellSchools(i));

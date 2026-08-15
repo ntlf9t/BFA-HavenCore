@@ -278,7 +278,7 @@ int32 PetBattleAbilityEffect::GetPetType()
 {
     if (BattlePetAbilityTurnEntry const* abilityTurn = sBattlePetAbilityTurnStore.LookupEntry(EffectInfo->BattlePetAbilityTurnID))
         if (BattlePetAbilityEntry const* ability = sBattlePetAbilityStore.LookupEntry(abilityTurn->BattlePetAbilityID))
-            return ability->PetTypeEnum == BATTLE_PET_TYPE_ALL ? BATTLE_PET_TYPE_HUMANOID : ability->PetTypeEnum;
+            return ability->PetTypeEnum == BATTLE_PET_TYPE_ALL ? int32(BATTLE_PET_TYPE_HUMANOID) : int32(ability->PetTypeEnum);
 
     return BATTLE_PET_TYPE_HUMANOID;
 }
@@ -937,7 +937,7 @@ bool PetBattleAbilityEffect::HandleRampingDamage()
     int32 damageIncrementPerUse = EffectInfo->Param[2];
     int32 maxDamage = EffectInfo->Param[3];
 
-    if (GetState(Caster, BATTLE_PET_STATE_Ramping_DamageID) != AbilityID)
+    if (GetState(Caster, BATTLE_PET_STATE_Ramping_DamageID) != static_cast<int32>(AbilityID))
     {
         SetState(Caster, BATTLE_PET_STATE_Ramping_DamageID, AbilityID);
         SetState(Caster, BATTLE_PET_STATE_Ramping_DamageUses, 0);
