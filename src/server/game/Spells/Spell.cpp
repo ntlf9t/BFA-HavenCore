@@ -205,7 +205,7 @@ void SpellCastTargets::Write(WorldPackets::Spells::SpellTargetData& data)
 
     if (m_targetMask & TARGET_FLAG_SOURCE_LOCATION)
     {
-        data.SrcLocation = boost::in_place();
+        data.SrcLocation.emplace();
         data.SrcLocation->Transport = m_src._transportGUID; // relative position guid here - transport for example
         if (!m_src._transportGUID.IsEmpty())
             data.SrcLocation->Location = m_src._transportOffset;
@@ -215,7 +215,7 @@ void SpellCastTargets::Write(WorldPackets::Spells::SpellTargetData& data)
 
     if (m_targetMask & TARGET_FLAG_DEST_LOCATION)
     {
-        data.DstLocation = boost::in_place();
+        data.DstLocation.emplace();
         data.DstLocation->Transport = m_dst._transportGUID; // relative position guid here - transport for example
         if (!m_dst._transportGUID.IsEmpty())
             data.DstLocation->Location = m_dst._transportOffset;
@@ -4212,7 +4212,7 @@ void Spell::SendSpellStart()
 
     if (castFlags & CAST_FLAG_RUNE_LIST) // rune cooldowns list
     {
-        castData.RemainingRunes = boost::in_place();
+        castData.RemainingRunes.emplace();
 
         //TODO: There is a crash caused by a spell with CAST_FLAG_RUNE_LIST casted by a creature
         //The creature is the mover of a player, so HandleCastSpellOpcode uses it as the caster
@@ -4330,7 +4330,7 @@ void Spell::SendSpellGo()
 
     if (castFlags & CAST_FLAG_RUNE_LIST) // rune cooldowns list
     {
-        castData.RemainingRunes = boost::in_place();
+        castData.RemainingRunes.emplace();
 
         //TODO: There is a crash caused by a spell with CAST_FLAG_RUNE_LIST casted by a creature
         //The creature is the mover of a player, so HandleCastSpellOpcode uses it as the caster
@@ -4626,7 +4626,7 @@ void Spell::SendChannelStart(uint32 duration)
 
     if (schoolImmunityMask || mechanicImmunityMask)
     {
-        spellChannelStart.InterruptImmunities = boost::in_place();
+        spellChannelStart.InterruptImmunities.emplace();
         spellChannelStart.InterruptImmunities->SchoolImmunities = schoolImmunityMask;
         spellChannelStart.InterruptImmunities->Immunities = mechanicImmunityMask;
     }
@@ -6878,7 +6878,7 @@ SpellCastResult Spell::CheckItems(uint32* param1 /*= nullptr*/, uint32* param2 /
                     return SPELL_FAILED_CANT_BE_MILLED;
                 //Check for enough skill in inscription
                 uint32 item_millingskilllevel = item->GetTemplate()->GetRequiredSkillRank();
-                if (item_millingskilllevel > player->GetSkillValue(SKILL_INSCRIPTION))
+                if (item_millingskilllevel > player->GetSkillValue(SKILL_INSCRIPTION_2))
                     return SPELL_FAILED_LOW_CASTLEVEL;
                 //make sure the player has the required herbs in inventory
                 if (item->GetCount() < 5)

@@ -137,6 +137,7 @@
 #include "WorldSession.h"
 #include "WorldStatePackets.h"
 #include <G3D/g3dmath.h>
+#include <sstream>
 
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
 #define SHOP_UPDATE_INTERVAL (30*IN_MILLISECONDS)
@@ -1702,7 +1703,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
                 transferPending.OldMapPosition = GetPosition();
                 if (Transport* transport = GetTransport())
                 {
-                    transferPending.Ship = boost::in_place();
+                    transferPending.Ship.emplace();
                     transferPending.Ship->ID = transport->GetEntry();
                     transferPending.Ship->OriginMapID = GetMapId();
                 }
@@ -3318,14 +3319,42 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
         return false;
     }
 
-    // update free primary prof.points (if any, can be none in case GM .learn prof. learning)
-    if (uint32 freeProfs = GetFreePrimaryProfessionPoints())
-    {
-        if (spellInfo->IsPrimaryProfessionFirstRank())
-            SetFreePrimaryProfessions(freeProfs - 1);
-    }
-
     SkillLineAbilityMapBounds skill_bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+
+    // Only consume a primary profession slot for the top-level profession.
+    // Dependent/child skill-line spells must not consume another slot.
+    if (!dependent && spellInfo->IsPrimaryProfessionFirstRank())
+    {
+        bool alreadyHasProfession = false;
+
+        for (SkillLineAbilityMap::const_iterator itr = skill_bounds.first; itr != skill_bounds.second; ++itr)
+        {
+            uint32 skillLineId = itr->second->SkillLine;
+            SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillLineId);
+            if (!skillLine)
+                continue;
+
+            uint32 parentSkillLineId = skillLine->ParentSkillLineID
+                ? uint32(skillLine->ParentSkillLineID)
+                : skillLineId;
+
+            SkillLineEntry const* parentSkillLine = sSkillLineStore.LookupEntry(parentSkillLineId);
+            if (!parentSkillLine || parentSkillLine->CategoryID != SKILL_CATEGORY_PROFESSION)
+                continue;
+
+            if (HasSkill(parentSkillLineId))
+            {
+                alreadyHasProfession = true;
+                break;
+            }
+        }
+
+        if (!alreadyHasProfession)
+        {
+            if (uint32 freeProfs = GetFreePrimaryProfessionPoints())
+                SetFreePrimaryProfessions(freeProfs - 1);
+        }
+    }
 
     if (SpellLearnSkillNode const* spellLearnSkill = sSpellMgr->GetSpellLearnSkill(spellId))
     {
@@ -3343,6 +3372,9 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
             if (skill_max_value < new_skill_max_value)
                 skill_max_value = new_skill_max_value;
 SetSkill(spellLearnSkill->skill, spellLearnSkill->step, skill_value, skill_max_value);
+
+            if (spellLearnSkill->skill == SKILL_FISHING && !HasSkill(SKILL_FISHING_2))
+                SetSkill(SKILL_FISHING_2, 1, std::max<uint32>(skill_value, 1), skill_max_value);
         }
     }
     else
@@ -5804,26 +5836,6 @@ bool Player::UpdateSkillPro(uint16 skillId, int32 chance, uint32 step)
         new_value = max;
 
     SetSkillRank(itr->second.pos, new_value);
-
-    // Classic Inscription progression is resolved from the expansion-specific
-    // recipe skill line to the parent skill, so explicitly send the skill-up
-    // chat notification for that parent skill. Other professions already
-    // receive their native client notification and must not be duplicated.
-    if (skillId == SKILL_INSCRIPTION || skillId == SKILL_ENGINEERING)
-    {
-        if (SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillId))
-        {
-            LocaleConstant locale = GetSession()->GetSessionDbcLocale();
-
-            std::ostringstream skillMessage;
-            skillMessage << "Your skill in " << skillLine->DisplayName->Str[locale]
-                         << " has increased to " << new_value << ".";
-
-            WorldPackets::Chat::Chat packet;
-            packet.Initialize(CHAT_MSG_SKILL, LANG_UNIVERSAL, this, this, skillMessage.str());
-            SendDirectMessage(packet.Write());
-        }
-    }
 
     if (itr->second.uState != SKILL_NEW)
         itr->second.uState = SKILL_CHANGED;
@@ -27378,7 +27390,7 @@ void Player::SetRuneCooldown(uint8 index, uint32 cooldown)
 {
     m_runes->Cooldown[index] = cooldown;
     m_runes->SetRuneState(index, (cooldown == 0) ? true : false);
-    int32 activeRunes = std::count(std::begin(m_runes->Cooldown), &m_runes->Cooldown[std::min(GetMaxPower(POWER_RUNES), MAX_RUNES)], 0);
+    int32 activeRunes = std::count(std::begin(m_runes->Cooldown), &m_runes->Cooldown[std::min(GetMaxPower(POWER_RUNES), MAX_RUNES)], 0u);
     if (activeRunes != GetPower(POWER_RUNES))
         SetPower(POWER_RUNES, activeRunes);
 }
@@ -29184,7 +29196,7 @@ void Player::SendItemRefundResult(Item* item, ItemExtendedCostEntry const* iece,
     itemPurchaseRefundResult.Result = error;
     if (!error)
     {
-        itemPurchaseRefundResult.Contents = boost::in_place();
+        itemPurchaseRefundResult.Contents.emplace();
         itemPurchaseRefundResult.Contents->Money = item->GetPaidMoney();
         for (uint8 i = 0; i < MAX_ITEM_EXT_COST_ITEMS; ++i)                             // item cost data
         {
@@ -29743,7 +29755,7 @@ void Player::SendGarrisonInfo() const
             {
                 garrisonInfo.Plots.push_back(&plot->PacketInfo);
                 if (plot->BuildingInfo.PacketInfo)
-                    garrisonInfo.Buildings.push_back(plot->BuildingInfo.PacketInfo.get_ptr());
+                    garrisonInfo.Buildings.push_back(&*plot->BuildingInfo.PacketInfo);
             }
         }
 
@@ -29936,7 +29948,7 @@ void Player::SendPlayerChoice(ObjectGuid sender, int32 choiceId)
 
         if (playerChoiceResponseTemplate.Reward)
         {
-            playerChoiceResponse.Reward = boost::in_place();
+            playerChoiceResponse.Reward.emplace();
             playerChoiceResponse.Reward->TitleID = playerChoiceResponseTemplate.Reward->TitleId;
             playerChoiceResponse.Reward->PackageID = playerChoiceResponseTemplate.Reward->PackageId;
             playerChoiceResponse.Reward->SkillLineID = playerChoiceResponseTemplate.Reward->SkillLineId;
@@ -29953,7 +29965,7 @@ void Player::SendPlayerChoice(ObjectGuid sender, int32 choiceId)
                 rewardEntry.Quantity = item.Quantity;
                 if (!item.BonusListIDs.empty())
                 {
-                    rewardEntry.Item.ItemBonus = boost::in_place();
+                    rewardEntry.Item.ItemBonus.emplace();
                     rewardEntry.Item.ItemBonus->BonusListIDs = item.BonusListIDs;
                 }
             }
