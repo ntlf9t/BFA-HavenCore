@@ -15,21 +15,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef TrinityCore_Regex_h__
-#define TrinityCore_Regex_h__
+#ifndef TRINITY_DETOUR_MEMORY_FUNCTIONS_H
+#define TRINITY_DETOUR_MEMORY_FUNCTIONS_H
 
-// std::wregex doesn't work with patterns provided in db2 files
-// so we have to use boost
-#include <boost/regex.hpp>
-#define TC_REGEX_NAMESPACE boost
+#include "DetourAlloc.h"
 
-namespace Trinity
+//  memory management
+inline void* dtCustomAlloc(size_t size, dtAllocHint /*hint*/)
 {
-    using regex = TC_REGEX_NAMESPACE :: regex;
-    using wregex = TC_REGEX_NAMESPACE :: wregex;
-
-    using :: TC_REGEX_NAMESPACE :: regex_match;
-    using :: TC_REGEX_NAMESPACE :: regex_search;
+    return (void*)new unsigned char[size];
 }
 
-#endif // TrinityCore_Regex_h__
+inline void dtCustomFree(void* ptr)
+{
+    delete [] (unsigned char*)ptr;
+}
+
+#endif // TRINITY_DETOUR_MEMORY_FUNCTIONS_H
