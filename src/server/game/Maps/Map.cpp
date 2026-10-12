@@ -869,11 +869,22 @@ void Map::UpdatePlayerZoneStats(uint32 oldZone, uint32 newZone)
 
     if (oldZone != MAP_INVALID_ZONE)
     {
-        uint32& oldZoneCount = _zonePlayerCountMap[oldZone];
-        ASSERT(oldZoneCount, "A player left zone %u (went to %u) - but there were no players in the zone!", oldZone, newZone);
-        --oldZoneCount;
+        auto const oldIt = _zonePlayerCountMap.find(oldZone);
+        if (oldIt == _zonePlayerCountMap.end() || oldIt->second == 0)
+        {
+            // Player left a zone without any registered player in it
+            // (e.g. re-entrant/linked/cosmetic map transfer, or a .go teleport that never
+            // incremented the counter). Log instead of crashing / underflowing the count.
+            TC_LOG_INFO("maps", "Map::UpdatePlayerZoneStats: player left zone %u (map %u) without registered presence - ignoring", oldZone, GetId());
+        }
+        else
+        {
+            --oldIt->second;
+        }
     }
-    ++_zonePlayerCountMap[newZone];
+
+    if (newZone != MAP_INVALID_ZONE)
+        ++_zonePlayerCountMap[newZone];
 }
 
 void Map::Update(uint32 t_diff)
@@ -1101,7 +1112,8 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
     if (player->IsInGrid())
         player->RemoveFromGrid();
     else
-        ASSERT(remove); //maybe deleted in logoutplayer when player is not in a map
+        TC_LOG_INFO("maps", "Map::RemovePlayerFromMap: player %s (%s) is not in a grid (remove=%d)",
+            player->GetName().c_str(), player->GetGUID().ToString().c_str(), remove);
 
     if (remove)
         DeleteFromWorld(player);
