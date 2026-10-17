@@ -19913,18 +19913,17 @@ void Player::_LoadAuras(PreparedQueryResult auraResult, PreparedQueryResult effe
             else
                 remainCharges = 0;
 
+            // Passive auras are re-applied by the login flow (item/talent/equip
+            // spells). Skip legacy rows for self-cast passives that a previous
+            // version of the save filter persisted, otherwise a fresh instance is
+            // created next to the re-applied one and the player sees double icons.
+            if (spellInfo->IsPassive() && key.Caster == GetGUID())
+                continue;
+
             AuraLoadEffectInfo& info = effectInfo[key];
             ObjectGuid castId = ObjectGuid::Create<HighGuid::Cast>(SPELL_CAST_SOURCE_NORMAL, GetMapId(), spellInfo->Id, GetMap()->GenerateLowGuid<HighGuid::Cast>());
             if (Aura* aura = Aura::TryCreate(spellInfo, castId, key.EffectMask, this, nullptr, info.BaseAmounts.data(), nullptr, casterGuid, itemGuid, castItemId, castItemLevel))
             {
-                // this causes buffs to be removed on login.
-                // there is no need for "if (!aura->CanBeSaved()) " cause CanBeSaved is already checked on saving. - Varjgard
-                /*if (!aura->CanBeSaved())
-                {
-                    aura->Remove();
-                    continue;
-                }*/
-
                 aura->SetLoadedState(maxDuration, remainTime, remainCharges, stackCount, recalculateMask, info.Amounts.data());
                 aura->ApplyForTargets();
                 TC_LOG_DEBUG("entities.player", "Player::_LoadAuras: Added aura (SpellID: %u, EffectMask: %u) to player '%s (%s)",
@@ -22019,8 +22018,11 @@ void Player::_SaveAuras(CharacterDatabaseTransaction& trans)
     uint8 index;
     for (AuraMap::const_iterator itr = m_ownedAuras.begin(); itr != m_ownedAuras.end(); ++itr)
     {
-        // this had "!itr->second->CanBeSaved" before ("not canbesaved"), caused buffs not to be saved.  - Varjgard
-        if (itr->second->CanBeSaved())
+        // Save auras that CanBeSaved; passives and auras re-applied by the login
+        // flow (item/talent equip spells etc.) are NOT persisted here, otherwise
+        // they duplicate on login (character_aura row + re-apply = two icons).
+        // Exception: private SPELL_AURA_ENABLE_EXTRA_TALENT (224) auras stay persistent.
+        if (!itr->second->CanBeSaved() && !itr->second->HasEffectType(SPELL_AURA_ENABLE_EXTRA_TALENT))
             continue;
 
         Aura* aura = itr->second;
