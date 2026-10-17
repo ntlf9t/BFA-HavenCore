@@ -79,7 +79,7 @@ NetworkThread<Battlenet::Session>* Battlenet::SessionManager::CreateThreads() co
 
 void Battlenet::SessionManager::OnSocketAccept(tcp::socket&& sock, uint32 threadIndex)
 {
-    sSessionMgr.OnSocketOpen(std::forward<tcp::socket>(sock), threadIndex);
+    sSessionMgr.OnSocketOpen(std::move(sock), threadIndex);
 }
 
 Battlenet::SessionManager& Battlenet::SessionManager::Instance()
