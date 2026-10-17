@@ -127,8 +127,18 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
     LoginDatabasePreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_REALMLIST);
     PreparedQueryResult result = LoginDatabase.Query(stmt);
 
+    // Move the currently served realms out first. Realm holds unique_ptr
+    // members and is move-only, so this is the only safe way to take a
+    // snapshot for the resolve-failure fallback below. The empty _realms is
+    // restored at the end of this function from newRealms.
+    RealmMap oldRealms;
+    {
+        std::lock_guard<std::shared_mutex> guard(_realmsMutex);
+        oldRealms = std::move(_realms);
+    }
+
     std::map<Battlenet::RealmHandle, std::string> existingRealms;
-    for (auto const& p : _realms)
+    for (auto const& p : oldRealms)
         existingRealms[p.first] = p.second.Name;
 
     std::unordered_set<std::string> newSubRegions;
@@ -147,11 +157,22 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
                 std::string externalAddressString = fields[2].GetString();
                 std::string localAddressString = fields[3].GetString();
                 std::string localSubmaskString = fields[4].GetString();
+                uint8 region = fields[12].GetUInt8();
+                uint8 battlegroup = fields[13].GetUInt8();
+                Battlenet::RealmHandle id{ region, battlegroup, realmId };
 
                 Optional<boost::asio::ip::tcp::endpoint> externalAddress = _resolver->Resolve(boost::asio::ip::tcp::v4(), externalAddressString, "");
                 if (!externalAddress)
                 {
                     TC_LOG_ERROR("realmlist", "Could not resolve address %s for realm \"%s\" id %u", externalAddressString.c_str(), name.c_str(), realmId);
+                    auto oldIt = oldRealms.find(id);
+                    if (oldIt != oldRealms.end())
+                    {
+                        TC_LOG_WARN("realmlist", "Keeping previous address for realm \"%s\" id %u", name.c_str(), realmId);
+                        newRealms[id] = std::move(oldIt->second);
+                    }
+                    else
+                        TC_LOG_ERROR("realmlist", "No previous address available for realm \"%s\" id %u, dropping it this round", name.c_str(), realmId);
                     continue;
                 }
 
@@ -159,6 +180,14 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
                 if (!localAddress)
                 {
                     TC_LOG_ERROR("realmlist", "Could not resolve localAddress %s for realm \"%s\" id %u", localAddressString.c_str(), name.c_str(), realmId);
+                    auto oldIt = oldRealms.find(id);
+                    if (oldIt != oldRealms.end())
+                    {
+                        TC_LOG_WARN("realmlist", "Keeping previous address for realm \"%s\" id %u", name.c_str(), realmId);
+                        newRealms[id] = std::move(oldIt->second);
+                    }
+                    else
+                        TC_LOG_ERROR("realmlist", "No previous address available for realm \"%s\" id %u, dropping it this round", name.c_str(), realmId);
                     continue;
                 }
 
@@ -166,6 +195,14 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
                 if (!localSubmask)
                 {
                     TC_LOG_ERROR("realmlist", "Could not resolve localSubnetMask %s for realm \"%s\" id %u", localSubmaskString.c_str(), name.c_str(), realmId);
+                    auto oldIt = oldRealms.find(id);
+                    if (oldIt != oldRealms.end())
+                    {
+                        TC_LOG_WARN("realmlist", "Keeping previous address for realm \"%s\" id %u", name.c_str(), realmId);
+                        newRealms[id] = std::move(oldIt->second);
+                    }
+                    else
+                        TC_LOG_ERROR("realmlist", "No previous address available for realm \"%s\" id %u, dropping it this round", name.c_str(), realmId);
                     continue;
                 }
 
@@ -180,10 +217,6 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
                 uint8 allowedSecurityLevel = fields[9].GetUInt8();
                 float pop = fields[10].GetFloat();
                 uint32 build = fields[11].GetUInt32();
-                uint8 region = fields[12].GetUInt8();
-                uint8 battlegroup = fields[13].GetUInt8();
-
-                Battlenet::RealmHandle id{ region, battlegroup, realmId };
 
                 UpdateRealm(newRealms[id], id, build, name, externalAddress->address(), localAddress->address(), localSubmask->address(), port, icon,
                     flag, timezone, (allowedSecurityLevel <= SEC_ADMINISTRATOR ? AccountTypes(allowedSecurityLevel) : SEC_ADMINISTRATOR), pop);
@@ -213,7 +246,7 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
         std::unique_lock<std::shared_mutex> lock(_realmsMutex);
 
         _subRegions.swap(newSubRegions);
-        _realms.swap(newRealms);
+        _realms = std::move(newRealms);
     }
 
     if (_updateInterval)

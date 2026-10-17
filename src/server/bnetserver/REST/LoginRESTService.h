@@ -22,9 +22,11 @@
 #include "IoContext.h"
 #include "IpAddress.h"
 #include "Login.pb.h"
+#include "Resolver.h"
 #include "Session.h"
 #include <boost/asio/ip/tcp.hpp>
 #include <atomic>
+#include <mutex>
 #include <thread>
 
 class AsyncRequest;
@@ -51,6 +53,8 @@ public:
 
 private:
     void Run();
+    void AddressUpdateCallback(boost::system::error_code const& error);
+    void UpgradeLoginAddresses();
 
     friend int32 handle_get_plugin(soap* soapClient);
     friend int32 handle_post_plugin(soap* soapClient);
@@ -102,6 +106,8 @@ private:
     Battlenet::JSON::Login::FormInputs _formInputs;
     std::string _bindIP;
     int32 _port;
+    mutable std::mutex _addressMutex;
+    std::unique_ptr<Trinity::Asio::DeadlineTimer> _addressTimer;
     boost::asio::ip::tcp::endpoint _externalAddress;
     boost::asio::ip::tcp::endpoint _localAddress;
     boost::asio::ip::address_v4 _localNetmask;

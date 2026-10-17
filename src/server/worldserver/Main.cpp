@@ -442,6 +442,7 @@ void WorldUpdateLoop()
 {
     uint32 realCurrTime = 0;
     uint32 realPrevTime = getMSTime();
+    uint32 lastRealmInfoSync = 0;
 
     ///- While we have not World::m_stopEvent, update the world
     while (!World::IsStopped())
@@ -453,6 +454,17 @@ void WorldUpdateLoop()
 
         sWorld->Update(diff);
         realPrevTime = realCurrTime;
+
+        // Periodically re-sync the global realm info (address, port, flags, ...).
+        // The RealmList keeps re-resolving the (possibly domain-based) addresses
+        // every RealmsStateUpdateDelay, but the global `realm` object was only
+        // populated at startup. Refreshing it here keeps e.g. the instance
+        // connect addresses sent to clients in sync after a DNS/IP change.
+        if (getMSTimeDiff(lastRealmInfoSync, getMSTime()) >= 10 * IN_MILLISECONDS)
+        {
+            lastRealmInfoSync = getMSTime();
+            LoadRealmInfo();
+        }
 
         uint32 executionTimeDiff = getMSTimeDiff(realCurrTime, getMSTime());
 
