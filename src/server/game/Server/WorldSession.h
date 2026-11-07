@@ -283,6 +283,7 @@ namespace WorldPackets
         class CharRaceOrFactionChange;
         class GenerateRandomCharacterName;
         class GetUndeleteCharacterCooldownStatus;
+        class GetAccountCharacterList;
         class ReorderCharacters;
         class UndeleteCharacter;
         class PlayerLogin;
@@ -1323,6 +1324,7 @@ class TC_GAME_API WorldSession
         void HandleOpeningCinematic(WorldPackets::Misc::OpeningCinematic& packet);
         void HandleGetUndeleteCooldownStatus(WorldPackets::Character::GetUndeleteCharacterCooldownStatus& /*getCooldown*/);
         void HandleUndeleteCooldownStatusCallback(PreparedQueryResult result);
+        void HandleGetAccountCharacterList(WorldPackets::Character::GetAccountCharacterList& packet);
         void HandleCharUndeleteOpcode(WorldPackets::Character::UndeleteCharacter& undeleteInfo);
 
         void SendCharCreate(ResponseCodes result, ObjectGuid const& guid = ObjectGuid::Empty);

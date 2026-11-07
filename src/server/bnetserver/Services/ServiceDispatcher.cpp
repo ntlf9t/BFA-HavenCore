@@ -29,7 +29,7 @@ Battlenet::ServiceDispatcher::ServiceDispatcher()
     AddService<Service<presence::v1::PresenceService>>();
     AddService<Service<report::v1::ReportService>>();
     AddService<Service<report::v2::ReportService>>();
-    AddService<Service<resources::v1::ResourcesService>>();
+    AddService<Services::Resources>();
     AddService<Service<user_manager::v1::UserManagerService>>();
 }
 

@@ -35,6 +35,7 @@
 #include "presence_service.pb.h"
 #include "report_service.pb.h"
 #include "api/client/v2/report_service.pb.h"
+#include "ResourcesService.h"
 #include "resource_service.pb.h"
 #include "user_manager_service.pb.h"
 

@@ -2477,6 +2477,13 @@ void WorldSession::HandleGetUndeleteCooldownStatus(WorldPackets::Character::GetU
     _queryProcessor.AddCallback(LoginDatabase.AsyncQuery(stmt).WithPreparedCallback(std::bind(&WorldSession::HandleUndeleteCooldownStatusCallback, this, std::placeholders::_1)));
 }
 
+void WorldSession::HandleGetAccountCharacterList(WorldPackets::Character::GetAccountCharacterList& packet)
+{
+    WorldPackets::Character::GetAccountCharacterListResult result;
+    result.Token = packet.Token;
+    SendPacket(result.Write());
+}
+
 void WorldSession::HandleUndeleteCooldownStatusCallback(PreparedQueryResult result)
 {
     uint32 cooldown = 0;

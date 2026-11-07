@@ -1140,6 +1140,9 @@ void WorldSession::InitializeSessionCallback(LoginDatabaseQueryHolder* realmHold
     ResetTimeOutTime();
 
     SendSetTimeZoneInformation();
+    WorldPackets::BattlePay::DistributionListResponse distributionList;
+    distributionList.Result = Battlepay::Error::Ok;
+    SendPacket(distributionList.Write());
     SendFeatureSystemStatusGlueScreen();
     SendDisplayPromo();
     SendClientCacheVersion(sWorld->getIntConfig(CONFIG_CLIENTCACHE_VERSION));

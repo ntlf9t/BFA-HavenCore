@@ -301,6 +301,7 @@ auto BattlepayManager::ProductFilter(Product product) -> bool
     {
         switch (product.WebsiteType)
         {
+        case Battlepay::Item:
         case Battlepay::BattlePet:
         case Rename:
         case Faction:

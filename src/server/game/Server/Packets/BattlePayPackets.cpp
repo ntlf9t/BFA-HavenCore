@@ -106,10 +106,10 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::BattlePay::BattlePayProdu
         data.WriteBit(productItem.HasPet);
         data.WriteBit(productItem.PetResult.has_value());
         data.WriteBit(productItem.DisplayInfo.has_value());
-        data.FlushBits();
 
         if (productItem.PetResult)
             data.WriteBits(*productItem.PetResult, 4);
+        data.FlushBits();
 
         if (productItem.DisplayInfo)
             data << *productItem.DisplayInfo;
@@ -173,6 +173,7 @@ WorldPacket const* WorldPackets::BattlePay::DistributionListResponse::Write()
 {
     _worldPacket << Result;
     _worldPacket.WriteBits(DistributionObject.size(), 11);
+    _worldPacket.FlushBits();
     for (BattlePayDistributionObject const& objectData : DistributionObject)
         _worldPacket << objectData;
 
@@ -234,12 +235,12 @@ WorldPacket const* WorldPackets::BattlePay::ProductListResponse::Write()
         _worldPacket << productGroupData.UnkInt;
 
         _worldPacket.WriteBits(productGroupData.Name.length(), 8);
-        _worldPacket.WriteBits(productGroupData.IsAvailableDescription.length(), 24);
+        _worldPacket.WriteBits(productGroupData.IsAvailableDescription.length() + 1, 24);
         _worldPacket.FlushBits();
 
         _worldPacket.WriteString(productGroupData.Name);
-        if (!productGroupData.IsAvailableDescription.empty())
-            _worldPacket << productGroupData.IsAvailableDescription;
+        _worldPacket.WriteString(productGroupData.IsAvailableDescription);
+        _worldPacket << uint8(0);
     }
 
     for (BattlePayShopEntry const& shopData : ProductList.Shop)
