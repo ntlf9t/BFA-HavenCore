@@ -367,16 +367,18 @@ auto BattlepayManager::ProductFilter(Product product) -> bool
 
         if (auto itemTemplate = sObjectMgr->GetItemTemplate(itr.ItemID))
         {
-            //@TODO
-            if (itemTemplate->GetAllowableClass() && player->getClassMask())
+            if (uint32 allowableClass = itemTemplate->GetAllowableClass();
+                allowableClass && (player->getClassMask() & allowableClass) == 0)
             {
-                TC_LOG_ERROR("network.BattlePay", "BattlePay : The item : %u is not available to class : %u !", itemTemplate->GetAllowableClass(), player->getClassMask());
+                TC_LOG_ERROR("network.BattlePay", "BattlePay: Item %u is not available to class mask %u (allowed mask %u).",
+                    itr.ItemID, player->getClassMask(), allowableClass);
                 return false;
             }
 
-            if (itemTemplate->GetAllowableRace() && player->getRaceMask())
+            if (!itemTemplate->GetAllowableRace().HasRace(player->getRace()))
             {
-                TC_LOG_ERROR("network.BattlePay", "BattlePay : The item : %u is not available to race : " UI64FMTD " !", itemTemplate->GetAllowableClass(), player->getRaceMask());
+                TC_LOG_ERROR("network.BattlePay", "BattlePay: Item %u is not available to race %u.",
+                    itr.ItemID, player->getRace());
                 return false;
             }
 

@@ -84,6 +84,7 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::BattlePay::BattlePayProdu
     data << product.UnkInt5;
 
     data.WriteBits(product.UnkString.size(), 8);
+    data.WriteBit(product.UnkBit);
     data.WriteBit(product.UnkBits.has_value());
     data.WriteBits(product.Items.size(), 7);
     data.WriteBit(product.DisplayInfo.has_value());
