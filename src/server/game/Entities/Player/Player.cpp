@@ -1410,6 +1410,7 @@ void Player::Update(uint32 p_time)
 void Player::setDeathState(DeathState s)
 {
     bool oldIsAlive = IsAlive();
+    GuidUnorderedSet creatureAttackers;
 
     if (s == JUST_DIED)
     {
@@ -1418,6 +1419,14 @@ void Player::setDeathState(DeathState s)
             TC_LOG_ERROR("entities.player", "Player::setDeathState: Attempted to kill a dead player '%s' (%s)", GetName().c_str(), GetGUID().ToString().c_str());
             return;
         }
+
+        for (Unit* attacker : getAttackers())
+            if (Creature* creatureAttacker = attacker->ToCreature())
+                creatureAttackers.insert(creatureAttacker->GetGUID());
+
+        for (auto const& pair : GetThreatManager().GetThreatenedByMeList())
+            if (Creature* creatureAttacker = pair.second->GetOwner()->ToCreature())
+                creatureAttackers.insert(creatureAttacker->GetGUID());
 
         // drunken state is cleared on death
         SetDrunkValue(0);
@@ -1442,6 +1451,37 @@ void Player::setDeathState(DeathState s)
     }
 
     Unit::setDeathState(s);
+
+    if (s == JUST_DIED)
+    {
+        GetThreatManager().RemoveMeFromThreatLists();
+
+        for (ObjectGuid const& guid : creatureAttackers)
+        {
+            Creature* creatureAttacker = GetMap()->GetCreature(guid);
+            if (!creatureAttacker)
+                continue;
+
+            if (Unit* nextVictim = creatureAttacker->SelectVictim())
+            {
+                if (!creatureAttacker->GetVictim())
+                    creatureAttacker->AI()->AttackStart(nextVictim);
+                continue;
+            }
+
+            creatureAttacker->AI()->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_HOSTILES);
+
+            // Some script AIs can suppress evade handling and never start a home movement.
+            // Force a hard reset/home run so creatures do not remain at the corpse location.
+            if (!creatureAttacker->IsInEvadeMode() && !creatureAttacker->GetCharmerOrOwner() && !creatureAttacker->GetVehicle())
+            {
+                creatureAttacker->CombatStop(true);
+                creatureAttacker->GetThreatManager().ClearAllThreat();
+                creatureAttacker->GetMotionMaster()->Clear(false);
+                creatureAttacker->GetMotionMaster()->MoveTargetedHome();
+            }
+        }
+    }
 
     if (IsAlive() && !oldIsAlive)
         //clear aura case after resurrection by another way (spells will be applied before next death)
@@ -4724,8 +4764,6 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 
 void Player::KillPlayer()
 {
-    std::vector<Unit*> attackersAtDeath(getAttackers().begin(), getAttackers().end());
-
     if (IsFlying() && !GetTransport())
         GetMotionMaster()->MoveFall();
 
@@ -4734,37 +4772,6 @@ void Player::KillPlayer()
     StopMirrorTimers();                                     //disable timers(bars)
 
     setDeathState(CORPSE);
-    // Fully remove this player from all hostile references on death.
-    // This guarantees creatures drop the dead target and can retarget or evade.
-    GetThreatManager().RemoveMeFromThreatLists();
-
-    for (Unit* attacker : attackersAtDeath)
-    {
-        attacker->ValidateAttackersAndOwnTarget();
-
-        Creature* creatureAttacker = attacker->ToCreature();
-        if (!creatureAttacker)
-            continue;
-
-        if (Unit* nextVictim = creatureAttacker->SelectVictim())
-        {
-            if (!creatureAttacker->GetVictim())
-                creatureAttacker->AI()->AttackStart(nextVictim);
-            continue;
-        }
-
-        creatureAttacker->AI()->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_HOSTILES);
-
-        // Some script AIs can suppress evade handling and never start a home movement.
-        // Force a hard reset/home run so creatures do not remain at the corpse location.
-        if (!creatureAttacker->IsInEvadeMode() && !creatureAttacker->GetCharmerOrOwner() && !creatureAttacker->GetVehicle())
-        {
-            creatureAttacker->CombatStop(true);
-            creatureAttacker->GetThreatManager().ClearAllThreat();
-            creatureAttacker->GetMotionMaster()->Clear(false);
-            creatureAttacker->GetMotionMaster()->MoveTargetedHome();
-        }
-    }
     //SetUnitFlags(UnitFlags(UNIT_FLAG_NOT_IN_PVP);
 
     SetDynamicFlags(UNIT_DYNFLAG_NONE);
